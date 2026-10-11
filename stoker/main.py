@@ -103,18 +103,24 @@ async def hearth_models(sid: str = Depends(auth.require_session)):
     return await hearth_mod.list_models()
 
 
+# NOTE (v0.1.2): Model lifecycle mutations (load/unload) are out of scope
+# for the first integration slice. They return 501 until the adapters are
+# verified against live Hearth. Read-only telemetry only.
+
 @app.post("/api/v1/hearth/models/{model_id}/load")
 async def hearth_load(model_id: str, body: LoadBody,
                       sid: str = Depends(auth.require_session)):
-    op_id = await hearth_mod.load_model(model_id, body.idempotency_key)
-    return AcceptedOperation(operation_id=op_id, resource=model_id)
+    return err("NOT_IMPLEMENTED",
+               "model lifecycle mutations disabled in v0.1.2 "
+               "(read-only integration slice)", 501)
 
 
 @app.post("/api/v1/hearth/models/{model_id}/unload")
 async def hearth_unload(model_id: str, body: LoadBody,
                         sid: str = Depends(auth.require_session)):
-    op_id = await hearth_mod.unload_model(model_id, body.idempotency_key)
-    return AcceptedOperation(operation_id=op_id, resource=model_id)
+    return err("NOT_IMPLEMENTED",
+               "model lifecycle mutations disabled in v0.1.2 "
+               "(read-only integration slice)", 501)
 
 
 @app.get("/api/v1/hearth/models/{model_id}/operations/{op_id}")
@@ -130,6 +136,13 @@ async def hearth_op(model_id: str, op_id: str,
 @app.get("/api/v1/hearth/vram", response_model=VramInfo)
 async def hearth_vram(sid: str = Depends(auth.require_session)):
     return await hearth_mod.get_vram()
+
+
+@app.get("/api/v1/hearth/reachable")
+async def hearth_reachable(sid: str = Depends(auth.require_session)):
+    """Liveness probe for the acceptance test."""
+    ok = await hearth_mod.hearth_reachable()
+    return {"hearth_reachable": ok, "timestamp": utcnow()}
 
 
 @app.get("/api/v1/hearth/events")
@@ -160,11 +173,11 @@ async def hearth_events(request: Request,
 @app.post("/api/v1/inference/chat")
 async def inference_chat(req: ChatRequest,
                          sid: str = Depends(auth.require_session)):
-    # Only SERVING models (endpoint ready), not merely RESIDENT.
-    models = await hearth_mod.list_models()
-    serving = {m.id for m in models
-               if m.state == OpState.SERVING and m.endpoint_ready}
-    if req.model not in serving:
+    # Source of truth: Hearth /v1/models (serving availability).
+    # Residency != readiness — only SERVING models are chattable.
+    serving = await hearth_mod.list_serving()
+    serving_ids = {m.id for m in serving}
+    if req.model not in serving_ids:
         return err("MODEL_NOT_SERVING",
                    f"model '{req.model}' is not serving "
                    f"(residency != readiness)", 409)
@@ -180,9 +193,7 @@ async def inference_cancel(op_id: str,
 
 @app.get("/api/v1/inference/models")
 async def inference_models(sid: str = Depends(auth.require_session)):
-    models = await hearth_mod.list_models()
-    return [m for m in models
-            if m.state == OpState.SERVING and m.endpoint_ready]
+    return await hearth_mod.list_serving()
 
 
 @app.get("/api/v1/inference/sessions")
