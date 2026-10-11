@@ -16,7 +16,8 @@ from .models import ChatRequest, ChatSession, utcnow
 
 
 class Settings(BaseSettings):
-    inference_url: str = "http://127.0.0.1:8080"
+    # Imagine v11 gateway on HashFactory (Ollama-compatible)
+    inference_url: str = "http://127.0.0.1:11434"
 
     class Config:
         env_file = ".env"
