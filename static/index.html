@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a0a0f">
+<title>Stoker — Command Deck</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+:root{--bg:#0a0a0f;--card:#14141c;--txt:#e8e8f0;--dim:#8a8a99;--acc:#ff7a1a;--ok:#3ddc84;--warn:#ffb020;--crit:#ff4d4d}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:-apple-system,system-ui,sans-serif;padding:env(safe-area-inset-top) 16px calc(90px + env(safe-area-inset-bottom));max-width:600px;margin:0 auto}
+h1{font-size:22px;margin:18px 0 4px}
+.sub{color:var(--dim);font-size:13px;margin-bottom:16px}
+.card{background:var(--card);border-radius:14px;padding:16px;margin-bottom:12px}
+.card h2{font-size:14px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;margin-bottom:10px}
+.big{font-size:34px;font-weight:700}
+.row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid #22222e}
+.row:first-of-type{border-top:none}
+.pill{font-size:12px;padding:4px 10px;border-radius:20px;background:#22222e}
+.pill.serving{background:#123f28;color:var(--ok)}
+.pill.loading{background:#3f2f12;color:var(--warn)}
+.pill.failed,.pill.lost{background:#3f1212;color:var(--crit)}
+#login{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;justify-content:center;padding:32px;z-index:50}
+#login input{background:var(--card);border:1px solid #2a2a38;color:var(--txt);border-radius:10px;padding:14px;font-size:16px;margin-bottom:12px;width:100%}
+button{background:var(--acc);color:#000;border:none;border-radius:12px;padding:14px 20px;font-size:16px;font-weight:700;width:100%;cursor:pointer}
+button.ghost{background:#22222e;color:var(--txt);margin-top:8px}
+.alert{border-left:3px solid var(--crit);padding:10px 14px;background:#1c1214;border-radius:0 10px 10px 0;margin-bottom:8px;font-size:14px}
+.alert.warning{border-color:var(--warn);background:#1c1812}
+nav{position:fixed;bottom:0;left:0;right:0;background:#101016;border-top:1px solid #22222e;display:flex;padding-bottom:env(safe-area-inset-bottom)}
+nav a{flex:1;text-align:center;padding:14px 0 10px;color:var(--dim);text-decoration:none;font-size:11px}
+nav a.on{color:var(--acc)}
+.stale{color:var(--warn);font-size:11px}
+#vram-bar{height:10px;background:#22222e;border-radius:6px;overflow:hidden;margin:8px 0}
+#vram-fill{height:100%;background:linear-gradient(90deg,var(--acc),var(--warn));border-radius:6px;transition:width .5s}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="login">
+  <h1>🔥 Stoker</h1>
+  <p class="sub">Enter your init token to open a session.</p>
+  <input id="token" type="password" placeholder="Init token" autocomplete="off">
+  <button onclick="doLogin()">Open Deck</button>
+</div>
+
+<h1>🔥 Stoker</h1>
+<p class="sub" id="updated">Connecting…</p>
+
+<div id="alerts"></div>
+
+<div class="card">
+  <h2>GPU</h2>
+  <div class="row"><span>Temperature</span><b id="temp">—</b></div>
+  <div class="row"><span>Utilization</span><b id="util">—</b></div>
+  <div class="row"><span>Fan</span><b id="fan">—</b></div>
+  <div class="row"><span>Throttling</span><b id="throttle">—</b></div>
+</div>
+
+<div class="card">
+  <h2>VRAM</h2>
+  <div id="vram-bar"><div id="vram-fill" style="width:0%"></div></div>
+  <div class="row"><span>Used</span><b id="vram-used">—</b></div>
+  <div class="row"><span>Free</span><b id="vram-free">—</b></div>
+</div>
+
+<div class="card">
+  <h2>Models</h2>
+  <div id="models"><p class="sub">Loading…</p></div>
+</div>
+
+<nav>
+  <a href="/" class="on">◈ Deck</a>
+  <a href="/chat.html">💬 Chat</a>
+  <a href="#" onclick="alert('v0.2');return false">🌐 PIN</a>
+  <a href="#" onclick="alert('v0.3');return false">⌁ Term</a>
+</nav>
+
+<script src="/app.js"></script>
+<script>
+async function tick(){
+  try{
+    const h=await api('/api/v1/system/health');
+    setText('temp',h.gpu_temp_c!=null?h.gpu_temp_c.toFixed(0)+'°C':'—');
+    setText('util',h.gpu_util_pct!=null?h.gpu_util_pct.toFixed(0)+'%':'—');
+    setText('fan',h.fan_state+(h.fan_rpm!=null?' '+h.fan_rpm+' rpm':''));
+    setText('throttle',h.gpu_throttling==null?'—':(h.gpu_throttling?'YES':'no'));
+    const v=await api('/api/v1/hearth/vram');
+    if(v.total_bytes&&v.used_bytes){
+      const pct=(v.used_bytes/v.total_bytes*100);
+      document.getElementById('vram-fill').style.width=pct+'%';
+      setText('vram-used',fmtGB(v.used_bytes)+' / '+fmtGB(v.total_bytes));
+      setText('vram-free',fmtGB(v.free_bytes));
+    }
+    const ms=await api('/api/v1/hearth/models');
+    renderModels(ms);
+    const al=await api('/api/v1/system/alerts');
+    renderAlerts(al);
+    setText('updated','Updated '+new Date().toLocaleTimeString()+(h.stale?' · stale':''));
+  }catch(e){ setText('updated','Connection lost — retrying…'); }
+}
+function renderModels(ms){
+  const el=document.getElementById('models');
+  if(!ms.length){el.innerHTML='<p class="sub">No models declared.</p>';return;}
+  el.innerHTML=ms.map(m=>{
+    const cls=m.state==='SERVING'?'serving':(m.state==='LOADING'||m.state==='WARMING'?'loading':(m.state==='FAILED'||m.state==='LOST'?'failed':''));
+    const vram=m.vram_bytes!=null?fmtGB(m.vram_bytes):'—';
+    return `<div class="row"><span>${m.id}<br><small style="color:var(--dim)">${vram}${m.endpoint_ready?' · endpoint ready':''}</small></span><span class="pill ${cls}">${m.state}</span></div>`;
+  }).join('');
+}
+function renderAlerts(al){
+  const el=document.getElementById('alerts');
+  el.innerHTML=al.map(a=>`<div class="alert ${a.severity==='critical'?'':'warning'}">${a.message}</div>`).join('');
+}
+setInterval(tick,3000); tick();
+</script>
+</body>
+</html>
